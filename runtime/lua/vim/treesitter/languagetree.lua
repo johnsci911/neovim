@@ -201,7 +201,9 @@ function LanguageTree:_get_injections()
           combined = true
         elseif name == "content" then
           injection_node = node
-        else
+        -- Ignore any tags that start with "_"
+        -- Allows for other tags to be used in matches
+        elseif string.sub(name, 1, 1) ~= "_" then
           if lang == nil then
             lang = name
           end
