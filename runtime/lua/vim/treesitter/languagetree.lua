@@ -191,6 +191,8 @@ function LanguageTree:_get_injections()
       -- @javascript
       for id, node in pairs(match) do
         local name = self._injection_query.captures[id]
+        -- TODO add a way to offset the content passed to the parser.
+        -- Needed to shave off leading quotes and things of that nature.
 
         -- Lang should override any other language tag
         if name == "language" then
