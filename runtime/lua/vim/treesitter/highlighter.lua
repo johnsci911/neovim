@@ -1,10 +1,14 @@
 local a = vim.api
+local query = require"vim.treesitter.query"
 
 -- support reload for quick experimentation
 local TSHighlighter = rawget(vim.treesitter, 'TSHighlighter') or {}
 TSHighlighter.__index = TSHighlighter
 
 TSHighlighter.active = TSHighlighter.active or {}
+
+local TSHighlighterQuery = {}
+TSHighlighterQuery.__index = TSHighlighterQuery
 
 local ns = a.nvim_create_namespace("treesitter/highlighter")
 
@@ -56,21 +60,60 @@ TSHighlighter.hl_map = {
     ["include"] = "Include",
 }
 
-function TSHighlighter.new(tree, query, opts)
-  local self = setmetatable({}, TSHighlighter)
+local function is_highlight_name(capture_name)
+  local firstc = string.sub(capture_name, 1, 1)
+  return firstc ~= string.lower(firstc)
+end
 
-  opts = opts or {}
+function TSHighlighterQuery.new(lang)
+  local self = setmetatable({}, { __index = TSHighlighterQuery })
+
+  self.hl_cache = setmetatable({}, {
+    __index = function(table, capture)
+      local hl = self:get_hl_from_capture(capture)
+      rawset(table, capture, hl)
+
+      return hl
+    end
+  })
+  self._query = query.get_query(lang, "highlights")
+
+  return self
+end
+
+function TSHighlighterQuery:query()
+  return self._query
+end
+
+function TSHighlighterQuery:get_hl_from_capture(capture)
+  local name = self._query.captures[capture]
+
+  if is_highlight_name(name) then
+    -- From "Normal.left" only keep "Normal"
+    return vim.split(name, '.', true)[1]
+  else
+    -- Default to false to avoid recomputing
+    local hl = TSHighlighter.hl_map[name]
+    return hl and a.nvim_get_hl_id_by_name(hl) or 0
+  end
+end
+
+function TSHighlighter.new(tree)
+  local self = setmetatable({}, TSHighlighter)
 
   self.tree = tree
   tree:register_cbs {
     on_changedtree = function(...) self:on_changedtree(...) end
   }
 
-  self:set_query(query)
   self.bufnr = tree._source
   self.edit_count = 0
   self.redraw_count = 0
   self.line_count = {}
+  -- A map of highlight states.
+  -- This state is kept during rendering across each line update.
+  self._highlight_states = {}
+  self._queries = {}
 
   a.nvim_buf_set_option(self.bufnr, "syntax", "")
 
@@ -89,60 +132,45 @@ function TSHighlighter.new(tree, query, opts)
   return self
 end
 
-local function is_highlight_name(capture_name)
-  local firstc = string.sub(capture_name, 1, 1)
-  return firstc ~= string.lower(firstc)
-end
-
 function TSHighlighter:destroy()
   if TSHighlighter.active[self.bufnr] then
     TSHighlighter.active[self.bufnr] = nil
   end
 end
 
-function TSHighlighter:get_hl_from_capture(capture)
-
-  local name = self.query.captures[capture]
-
-  if is_highlight_name(name) then
-    -- From "Normal.left" only keep "Normal"
-    return vim.split(name, '.', true)[1]
-  else
-    -- Default to false to avoid recomputing
-    local hl = TSHighlighter.hl_map[name]
-    return hl and a.nvim_get_hl_id_by_name(hl) or 0
+function TSHighlighter:get_highlight_state(tstree)
+  if not self._highlight_states[tstree] then
+    self._highlight_states[tstree] = {
+      next_row = 0,
+      iter = nil
+    }
   end
+
+  return self._highlight_states[tstree]
+end
+
+function TSHighlighter:reset_highlight_state()
+  self._highlight_states = {}
 end
 
 function TSHighlighter:on_changedtree(changes)
   for _, ch in ipairs(changes or {}) do
-    a.nvim__buf_redraw_range(self.buf, ch[1], ch[3]+1)
+    a.nvim__buf_redraw_range(self.bufnr, ch[1], ch[3]+1)
   end
 end
 
-function TSHighlighter:set_query(query)
-  if type(query) == "string" then
-    query = vim.treesitter.parse_query(self.tree:lang(), query)
+function TSHighlighter:get_query(lang)
+  if not self._queries[lang] then
+    self._queries[lang] = TSHighlighterQuery.new(lang)
   end
 
-  self.query = query
+  a.nvim__buf_redraw_range(self.tree.source, 0, a.nvim_buf_line_count(self.tree.source))
 
-  self.hl_cache = setmetatable({}, {
-    __index = function(table, capture)
-      local hl = self:get_hl_from_capture(capture)
-      rawset(table, capture, hl)
-
-      return hl
-    end
-  })
-
-  a.nvim__buf_redraw_range(self.tree.bufnr, 0, a.nvim_buf_line_count(self.tree.bufnr))
+  return self._queries[lang]
 end
 
 local function on_line_impl(self, buf, line)
-  self.tree:for_each_child(function(tree)
-    local tstree = tree.tree
-
+  self.tree:for_each_tree(function(tstree, tree)
     if not tstree then return end
 
     local root_node = tstree:root()
@@ -151,17 +179,20 @@ local function on_line_impl(self, buf, line)
     -- Only worry about trees within the line range
     if root_start_row > line or root_end_row < line then return end
 
-    if tree._highlight_iter == nil then
-      tree._highlight_iter = self.query:iter_captures(root_node, self.bufnr, line, root_end_row + 1)
+    local state = self:get_highlight_state(tstree)
+    local highlighter_query = self:get_query(tree:lang())
+
+    if state.iter == nil then
+      state.iter = highlighter_query:query():iter_captures(root_node, self.bufnr, line, root_end_row + 1)
     end
 
-    while line >= tree._highlight_next_row do
-      local capture, node = tree._highlight_iter()
+    while line >= state.next_row do
+      local capture, node = state.iter()
 
       if capture == nil then break end
 
       local start_row, start_col, end_row, end_col = node:range()
-      local hl = self.hl_cache[capture]
+      local hl = highlighter_query.hl_cache[capture]
 
       if hl and end_row >= line then
         a.nvim_buf_set_extmark(buf, ns, start_row, start_col,
@@ -171,7 +202,7 @@ local function on_line_impl(self, buf, line)
                                 })
       end
       if start_row > line then
-        tree._highlight_next_row = start_row
+        state.next_row = start_row
       end
     end
   end, true)
@@ -187,7 +218,7 @@ end
 function TSHighlighter._on_buf(_, buf)
   local self = TSHighlighter.active[buf]
   if self then
-    self:parse()
+    self.tree:parse()
   end
 end
 
@@ -197,11 +228,7 @@ function TSHighlighter._on_win(_, _win, buf, _topline, botline)
     return false
   end
 
-  self.tree:for_each_child(function(tree)
-    tree._highlight_iter = nil
-    tree._highlight_next_row = 0
-  end, true)
-
+  self:reset_highlight_state()
   self.redraw_count = self.redraw_count + 1
   return true
 end

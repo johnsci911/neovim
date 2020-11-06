@@ -4,15 +4,15 @@ local language = require'vim.treesitter.language'
 local LanguageTree = {}
 LanguageTree.__index = LanguageTree
 
-function LanguageTree.new(source, lang, opts)
-  opts = opts or {}
+function LanguageTree.new(source, lang)
   language.require_language(lang)
 
   local self = setmetatable({
     _source=source,
     _lang=lang,
     _children = {},
-    _tree = nil,
+    _ranges = {},
+    _trees = {},
     _injection_query = query.get_query(lang, "injections"),
     _valid = false,
     _parser = vim._create_ts_parser(lang),
@@ -37,6 +37,10 @@ function LanguageTree:invalidate()
   end
 end
 
+function LanguageTree:trees()
+  return self._trees
+end
+
 function LanguageTree:lang()
   return self._lang
 end
@@ -47,21 +51,52 @@ end
 
 function LanguageTree:parse()
   if self._valid then
-    return self._tree
+    return self._trees
   end
 
   local parser = self._parser
+  local changes = {}
 
-  local tree, changes = parser:parse(self._tree, self._source)
+  self._trees = {}
+
+  -- If there are no ranges, set to an empty list
+  -- so the included ranges in the parser ar cleared.
+  if self._ranges and #self._ranges > 0 then
+    for _, ranges in ipairs(self._ranges) do
+      parser:set_included_ranges(ranges)
+
+      local tree, tree_changes = parser:parse(nil, self._source)
+
+      table.insert(self._trees, tree)
+      vim.list_extend(changes, tree_changes)
+    end
+  else
+    local tree, tree_changes = parser:parse(nil, self._source)
+
+    table.insert(self._trees, tree)
+    vim.list_extend(changes, tree_changes)
+  end
 
   local injections_by_lang = self:_get_injections()
   local seen_langs = {}
 
-  for lang, injections in pairs(injections_by_lang) do
+  for lang, injection_ranges in pairs(injections_by_lang) do
     local child = self._children[lang]
+
     if not child then
       child = self:add_child(lang)
     end
+
+    child:set_included_ranges(injection_ranges)
+
+    local _, child_changes = child:parse()
+
+    -- Propagate any child changes so they are included in the
+    -- the change list for the callback.
+    if child_changes then
+      vim.list_extend(changes, child_changes)
+    end
+
     seen_langs[lang] = true
   end
 
@@ -71,11 +106,10 @@ function LanguageTree:parse()
     end
   end
 
-  self._tree = tree
   self._valid = true
 
   self:_do_callback('changedtree', changes)
-  return self._tree, changes
+  return self._trees, changes
 end
 
 function LanguageTree:for_each_child(fn, include_self)
@@ -84,9 +118,17 @@ function LanguageTree:for_each_child(fn, include_self)
   end
 
   for lang, child in pairs(self._children) do
-    fn(child, lang)
+    child:for_each_child(fn, true)
+  end
+end
 
-    child:for_each_child(fn)
+function LanguageTree:for_each_tree(fn)
+  for _, tree in ipairs(self._trees) do
+    fn(tree, self)
+  end
+
+  for lang, child in pairs(self._children) do
+    child:for_each_tree(fn)
   end
 end
 
@@ -122,12 +164,12 @@ function LanguageTree:destroy()
 end
 
 function LanguageTree:set_included_ranges(ranges)
-  self._parser:set_included_ranges(ranges)
+  self._ranges = ranges
   self:invalidate()
 end
 
 function LanguageTree:included_ranges()
-  return self._parser:included_ranges()
+  return self._ranges
 end
 
 function LanguageTree:_get_injections()
@@ -135,33 +177,82 @@ function LanguageTree:_get_injections()
 
   local injections = {}
 
-  for pattern, match in self._injection_query:iter_matches(self._tree, self._source) do
-    local lang = nil
-    local injection_node = nil
+  for tree_index, tree in ipairs(self._trees) do
+    local root_node = tree:root()
+    local start_line, _, end_line, _ = root_node:range()
 
-    for id, node in pairs(match) do
-      local name = query.captures[id]
+    for pattern, match in self._injection_query:iter_matches(root_node, self._source, start_line, end_line+1) do
+      local lang = nil
+      local injection_node = nil
+      local combined = false
 
-      -- Lang should override any other language tag
-      if name == "lang" then
-        lang = query.get_node_text(node, self._source)
-      else
-        if lang == nil then
-          lang = name
+      -- You can specify the content and language together
+      -- using a tag with the language, for example
+      -- @javascript
+      for id, node in pairs(match) do
+        local name = self._injection_query.captures[id]
+
+        -- Lang should override any other language tag
+        if name == "language" then
+          lang = query.get_node_text(node, self._source)
+        elseif name == "combined" then
+          combined = true
+        elseif name == "content" then
+          injection_node = node
+        else
+          if lang == nil then
+            lang = name
+          end
+
+          if not injection_node then
+            injection_node = node
+          end
         end
-
-        injection_node = node
       end
-    end
 
-    if not injections[lang] then
-      injections[lang] = {}
-    end
+      -- Each tree index should be isolated from the other nodes.
+      if not injections[tree_index] then
+        injections[tree_index] = {}
+      end
 
-    table.insert(injections[lang], injection_node)
+      if not injections[tree_index][lang] then
+        injections[tree_index][lang] = {}
+      end
+
+      -- Key by pattern so we can either combine each node to parse in the same
+      -- context or treat each node independently.
+      if not injections[tree_index][lang][pattern] then
+        injections[tree_index][lang][pattern] = { combined = combined, nodes = {} }
+      end
+
+      table.insert(injections[tree_index][lang][pattern].nodes, injection_node)
+    end
   end
 
-  return injections
+  local result = {}
+
+  -- Generate a map by lang of node lists.
+  -- Each list is a set of ranges that should be parsed
+  -- together.
+  for index, lang_map in ipairs(injections) do
+    for lang, patterns in pairs(lang_map) do
+      if not result[lang] then
+        result[lang] = {}
+      end
+
+      for _, entry in pairs(patterns) do
+        if entry.combined then
+          table.insert(result[lang], entry.nodes)
+        else
+          for _, node in ipairs(entry.nodes) do
+            table.insert(result[lang], {node})
+          end
+        end
+      end
+    end
+  end
+
+  return result
 end
 
 function LanguageTree:_do_callback(cb_name, ...)
@@ -176,8 +267,8 @@ function LanguageTree:_on_bytes(bufnr, changed_tick,
                           new_row, new_col, new_byte)
   self:invalidate()
 
-  if self._tree then
-    self._tree:edit(start_byte,start_byte+old_byte,start_byte+new_byte,
+  for _, tree in ipairs(self._trees) do
+    tree:edit(start_byte,start_byte+old_byte,start_byte+new_byte,
       start_row, start_col,
       start_row+old_row, old_end_col,
       start_row+new_row, new_end_col)
