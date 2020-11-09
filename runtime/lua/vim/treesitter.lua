@@ -46,14 +46,13 @@ function M._create_parser(bufnr, lang)
       tree:_on_bytes(unpack(args))
     end, true)
   end
-  local detach_cb = nil
-  if id ~= nil then
-    detach_cb = function()
-      if parsers[bufnr] == self then
-        parsers[bufnr] = nil
-      end
+
+  local function detach_cb()
+    if parsers[bufnr] == self then
+      parsers[bufnr] = nil
     end
   end
+
   a.nvim_buf_attach(self.bufnr, false, {on_bytes=bytes_cb, on_detach=detach_cb})
 
   self:parse()

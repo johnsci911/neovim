@@ -208,7 +208,7 @@ local function on_line_impl(self, buf, line)
   end, true)
 end
 
-function TSHighlighter._on_line(_, _win, buf, line, highlighter)
+function TSHighlighter._on_line(_, _win, buf, line, _)
   local self = TSHighlighter.active[buf]
   if not self then return end
 
@@ -222,7 +222,7 @@ function TSHighlighter._on_buf(_, buf)
   end
 end
 
-function TSHighlighter._on_win(_, _win, buf, _topline, botline)
+function TSHighlighter._on_win(_, _win, buf, _topline)
   local self = TSHighlighter.active[buf]
   if not self then
     return false

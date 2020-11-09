@@ -50,7 +50,7 @@ describe('treesitter API with C parser', function()
 
     exec_lua([[
       parser = vim.treesitter.get_parser(0, "c")
-      tree = parser:parse()
+      tree = parser:parse()[1]
       root = tree:root()
       lang = vim.treesitter.inspect_language('c')
     ]])
@@ -82,7 +82,7 @@ describe('treesitter API with C parser', function()
 
     feed("2G7|ay")
     exec_lua([[
-      tree2 = parser:parse()
+      tree2 = parser:parse()[1]
       root2 = tree2:root()
       descendant2 = root2:descendant_for_range(1,2,1,13)
     ]])
@@ -142,7 +142,7 @@ void ui_refresh(void)
     local res = exec_lua([[
       parser = vim.treesitter.get_parser(0, "c")
 
-      func_node = parser:parse():root():child(0)
+      func_node = parser:parse()[1]:root():child(0)
 
       res = {}
       for node, field in func_node:iter_children() do
@@ -166,7 +166,7 @@ void ui_refresh(void)
     local res = exec_lua([[
       parser = vim.treesitter.get_parser(0, "c")
 
-      func_node = parser:parse():root():child(0)
+      func_node = parser:parse()[1]:root():child(0)
 
       local res = {}
       for _, node in ipairs(func_node:field("type")) do
@@ -211,7 +211,7 @@ void ui_refresh(void)
     local res = exec_lua([[
       cquery = vim.treesitter.parse_query("c", ...)
       parser = vim.treesitter.get_parser(0, "c")
-      tree = parser:parse()
+      tree = parser:parse()[1]
       res = {}
       for cid, node in cquery:iter_captures(tree:root(), 0, 7, 14) do
         -- can't transmit node over RPC. just check the name and range
@@ -242,7 +242,7 @@ void ui_refresh(void)
     local res = exec_lua([[
       cquery = vim.treesitter.parse_query("c", ...)
       parser = vim.treesitter.get_parser(0, "c")
-      tree = parser:parse()
+      tree = parser:parse()[1]
       res = {}
       for pattern, match in cquery:iter_matches(tree:root(), 0, 7, 14) do
         -- can't transmit node over RPC. just check the name and range
@@ -275,7 +275,7 @@ void ui_refresh(void)
     local res = exec_lua([[
       cquery = vim.treesitter.parse_query("c", '((_) @quote (vim-match? @quote "^\\"$")) ((_) @quote (lua-match? @quote "^\\"$"))')
       parser = vim.treesitter.get_parser(0, "c")
-      tree = parser:parse()
+      tree = parser:parse()[1]
       res = {}
       for pattern, match in cquery:iter_matches(tree:root(), 0, 0, 1) do
         -- can't transmit node over RPC. just check the name and range
@@ -321,7 +321,7 @@ void ui_refresh(void)
     local query = query.parse_query("c", ...)
 
     local nodes = {}
-    for _, node in query:iter_captures(parser:parse():root(), 0, 0, 19) do
+    for _, node in query:iter_captures(parser:parse()[1]:root(), 0, 0, 19) do
       table.insert(nodes, {node:range()})
     end
 
@@ -612,7 +612,7 @@ static int nlua_schedule(lua_State *const lstate)
     query = vim.treesitter.parse_query("c", "(declaration) @decl")
 
     local nodes = {}
-    for _, node in query:iter_captures(parser:parse():root(), 0, 0, 19) do
+    for _, node in query:iter_captures(parser:parse()[1]:root(), 0, 0, 19) do
       table.insert(nodes, node)
     end
 
@@ -690,7 +690,7 @@ static int nlua_schedule(lua_State *const lstate)
 
     local res = exec_lua [[
     parser = vim.treesitter.get_parser(0, "c")
-    return { parser:parse():root():range() }
+    return { parser:parse()[1]:root():range() }
     ]]
 
     eq({0, 0, 19, 0}, res)
@@ -698,10 +698,10 @@ static int nlua_schedule(lua_State *const lstate)
     -- The following sets the included ranges for the current parser
     -- As stated here, this only includes the function (thus the whole buffer, without the last line)
     local res2 = exec_lua [[
-    local root = parser:parse():root()
+    local root = parser:parse()[1]:root()
     parser:set_included_ranges({root:child(0)})
     parser.valid = false
-    return { parser:parse():root():range() }
+    return { parser:parse()[1]:root():range() }
     ]]
 
     eq({0, 0, 18, 1}, res2)
@@ -723,13 +723,13 @@ static int nlua_schedule(lua_State *const lstate)
     query = vim.treesitter.parse_query("c", "(declaration) @decl")
 
     local nodes = {}
-    for _, node in query:iter_captures(parser:parse():root(), 0, 0, 19) do
+    for _, node in query:iter_captures(parser:parse()[1]:root(), 0, 0, 19) do
       table.insert(nodes, node)
     end
 
     parser:set_included_ranges(nodes)
 
-    local root = parser:parse():root()
+    local root = parser:parse()[1]:root()
 
     local res = {}
     for i=0,(root:named_child_count() - 1) do
@@ -754,7 +754,7 @@ static int nlua_schedule(lua_State *const lstate)
   it("allows to create string parsers", function()
     local ret = exec_lua [[
       local parser = vim.treesitter.get_string_parser("int foo = 42;", "c")
-      return { parser:parse():root():range() }
+      return { parser:parse()[1]:root():range() }
     ]]
 
     eq({ 0, 0, 0, 13 }, ret)
@@ -773,7 +773,7 @@ static int nlua_schedule(lua_State *const lstate)
     local nodes = {}
     local query = vim.treesitter.parse_query("c", '((identifier) @id (eq? @id "foo"))')
 
-    for _, node in query:iter_captures(parser:parse():root(), str, 0, 2) do
+    for _, node in query:iter_captures(parser:parse()[1]:root(), str, 0, 2) do
       table.insert(nodes, { node:range() })
     end
 

@@ -117,7 +117,7 @@ function LanguageTree:for_each_child(fn, include_self)
     fn(self, self._lang)
   end
 
-  for lang, child in pairs(self._children) do
+  for _, child in pairs(self._children) do
     child:for_each_child(fn, true)
   end
 end
@@ -127,7 +127,7 @@ function LanguageTree:for_each_tree(fn)
     fn(tree, self)
   end
 
-  for lang, child in pairs(self._children) do
+  for _, child in pairs(self._children) do
     child:for_each_tree(fn)
   end
 end
@@ -238,7 +238,7 @@ function LanguageTree:_get_injections()
   -- Generate a map by lang of node lists.
   -- Each list is a set of ranges that should be parsed
   -- together.
-  for index, lang_map in ipairs(injections) do
+  for _, lang_map in ipairs(injections) do
     for lang, patterns in pairs(lang_map) do
       if not result[lang] then
         result[lang] = {}
@@ -270,6 +270,9 @@ function LanguageTree:_on_bytes(bufnr, changed_tick,
                           old_row, old_col, old_byte,
                           new_row, new_col, new_byte)
   self:invalidate()
+
+  local old_end_col = old_col + ((old_row == 0) and start_col or 0)
+  local new_end_col = new_col + ((new_row == 0) and start_col or 0)
 
   for _, tree in ipairs(self._trees) do
     tree:edit(start_byte,start_byte+old_byte,start_byte+new_byte,
