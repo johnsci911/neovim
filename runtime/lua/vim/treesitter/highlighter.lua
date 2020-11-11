@@ -65,7 +65,7 @@ local function is_highlight_name(capture_name)
   return firstc ~= string.lower(firstc)
 end
 
-function TSHighlighterQuery.new(lang)
+function TSHighlighterQuery.new(lang, query_string)
   local self = setmetatable({}, { __index = TSHighlighterQuery })
 
   self.hl_cache = setmetatable({}, {
@@ -76,7 +76,12 @@ function TSHighlighterQuery.new(lang)
       return hl
     end
   })
-  self._query = query.get_query(lang, "highlights")
+
+  if query_string then
+    self._query = query.parse_query(lang, query_string)
+  else
+    self._query = query.get_query(lang, "highlights")
+  end
 
   return self
 end
@@ -98,7 +103,7 @@ function TSHighlighterQuery:get_hl_from_capture(capture)
   end
 end
 
-function TSHighlighter.new(tree)
+function TSHighlighter.new(tree, custom_queries)
   local self = setmetatable({}, TSHighlighter)
 
   self.tree = tree
@@ -114,6 +119,14 @@ function TSHighlighter.new(tree)
   -- This state is kept during rendering across each line update.
   self._highlight_states = {}
   self._queries = {}
+
+  -- Queries for a specific language can be overridden by a custom
+  -- string query... if one is not provided it will be looked up by file.
+  if custom_queries then
+    for lang, query_string in pairs(custom_queries) do
+      self._queries[lang] = TSHighlighterQuery.new(lang, query_string)
+    end
+  end
 
   a.nvim_buf_set_option(self.bufnr, "syntax", "")
 
@@ -163,8 +176,6 @@ function TSHighlighter:get_query(lang)
   if not self._queries[lang] then
     self._queries[lang] = TSHighlighterQuery.new(lang)
   end
-
-  a.nvim__buf_redraw_range(self.tree.source, 0, a.nvim_buf_line_count(self.tree.source))
 
   return self._queries[lang]
 end

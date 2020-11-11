@@ -440,7 +440,7 @@ static int nlua_schedule(lua_State *const lstate)
       local parser = vim.treesitter.get_parser(0, "c")
       local highlighter = vim.treesitter.highlighter
       local query = ...
-      test_hl = highlighter.new(parser, query)
+      test_hl = highlighter.new(parser, {c = query})
     ]], hl_query)
     screen:expect{grid=[[
       {2:/// Schedule Lua callback on main loop's event queue}             |
@@ -616,9 +616,9 @@ static int nlua_schedule(lua_State *const lstate)
       table.insert(nodes, node)
     end
 
-    parser:set_included_ranges(nodes)
+    parser:set_included_ranges({nodes})
 
-    local hl = vim.treesitter.highlighter.new(parser, "(identifier) @type")
+    local hl = vim.treesitter.highlighter.new(parser, {c = "(identifier) @type"})
     ]])
 
     screen:expect{ grid = [[
@@ -699,8 +699,8 @@ static int nlua_schedule(lua_State *const lstate)
     -- As stated here, this only includes the function (thus the whole buffer, without the last line)
     local res2 = exec_lua [[
     local root = parser:parse()[1]:root()
-    parser:set_included_ranges({root:child(0)})
-    parser.valid = false
+    parser:set_included_ranges({{root:child(0)}})
+    parser:invalidate()
     return { parser:parse()[1]:root():range() }
     ]]
 
