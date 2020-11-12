@@ -4,16 +4,21 @@ local language = require'vim.treesitter.language'
 local LanguageTree = {}
 LanguageTree.__index = LanguageTree
 
-function LanguageTree.new(source, lang)
+function LanguageTree.new(source, lang, opts)
   language.require_language(lang)
+  opts = opts or {}
 
+  local custom_queries = opts.queries or {}
   local self = setmetatable({
     _source=source,
     _lang=lang,
     _children = {},
     _ranges = {},
     _trees = {},
-    _injection_query = query.get_query(lang, "injections"),
+    _opts = opts,
+    _injection_query = custom_queries[lang]
+      and query.parse_query(lang, custom_queries[lang])
+      or query.get_query(lang, "injections"),
     _valid = false,
     _parser = vim._create_ts_parser(lang),
     _callbacks = {
@@ -137,7 +142,7 @@ function LanguageTree:add_child(lang)
     self:remove_child(lang)
   end
 
-  self._children[lang] = LanguageTree.new(self._source, lang, {})
+  self._children[lang] = LanguageTree.new(self._source, lang, self._opts)
 
   self:invalidate()
   self:_do_callback('child_added', self._children[lang])

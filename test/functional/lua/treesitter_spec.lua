@@ -440,7 +440,7 @@ static int nlua_schedule(lua_State *const lstate)
       local parser = vim.treesitter.get_parser(0, "c")
       local highlighter = vim.treesitter.highlighter
       local query = ...
-      test_hl = highlighter.new(parser, {c = query})
+      test_hl = highlighter.new(parser, {queries = {c = query}})
     ]], hl_query)
     screen:expect{grid=[[
       {2:/// Schedule Lua callback on main loop's event queue}             |
@@ -618,7 +618,7 @@ static int nlua_schedule(lua_State *const lstate)
 
     parser:set_included_ranges({nodes})
 
-    local hl = vim.treesitter.highlighter.new(parser, {c = "(identifier) @type"})
+    local hl = vim.treesitter.highlighter.new(parser, {queries = {c = "(identifier) @type"}})
     ]])
 
     screen:expect{ grid = [[

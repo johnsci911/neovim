@@ -103,9 +103,10 @@ function TSHighlighterQuery:get_hl_from_capture(capture)
   end
 end
 
-function TSHighlighter.new(tree, custom_queries)
+function TSHighlighter.new(tree, opts)
   local self = setmetatable({}, TSHighlighter)
 
+  opts = opts or {}
   self.tree = tree
   tree:register_cbs {
     on_changedtree = function(...) self:on_changedtree(...) end
@@ -122,8 +123,8 @@ function TSHighlighter.new(tree, custom_queries)
 
   -- Queries for a specific language can be overridden by a custom
   -- string query... if one is not provided it will be looked up by file.
-  if custom_queries then
-    for lang, query_string in pairs(custom_queries) do
+  if opts.queries then
+    for lang, query_string in pairs(opts.queries) do
       self._queries[lang] = TSHighlighterQuery.new(lang, query_string)
     end
   end

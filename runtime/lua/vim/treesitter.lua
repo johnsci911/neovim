@@ -28,8 +28,9 @@ setmetatable(M, {
 -- It is not recommended to use this, use vim.treesitter.get_parser() instead.
 --
 -- @param bufnr The buffer the parser will be tied to
--- @param lang The language of the parser.
-function M._create_parser(bufnr, lang)
+-- @param lang The language of the parser
+-- @param opts Options to pass to the language tree
+function M._create_parser(bufnr, lang, opts)
   language.require_language(lang)
   if bufnr == 0 then
     bufnr = a.nvim_get_current_buf()
@@ -37,7 +38,7 @@ function M._create_parser(bufnr, lang)
 
   vim.fn.bufload(bufnr)
 
-  local self = LanguageTree.new(bufnr, lang)
+  local self = LanguageTree.new(bufnr, lang, opts)
 
   local function bytes_cb(_, ...)
     local args = {...}
@@ -67,10 +68,12 @@ end
 --
 -- @param bufnr The buffer the parser should be tied to
 -- @param ft The filetype of this parser
--- @param buf_attach_cbs See Parser:register_cbs
+-- @param opts Options object to pass to the parser
 --
 -- @returns The parser
-function M.get_parser(bufnr, lang, buf_attach_cbs)
+function M.get_parser(bufnr, lang, opts)
+  opts = opts or {}
+
   if bufnr == nil or bufnr == 0 then
     bufnr = a.nvim_get_current_buf()
   end
@@ -79,22 +82,22 @@ function M.get_parser(bufnr, lang, buf_attach_cbs)
   end
 
   if parsers[bufnr] == nil then
-    parsers[bufnr] = M._create_parser(bufnr, lang)
+    parsers[bufnr] = M._create_parser(bufnr, lang, opts)
   end
 
-  parsers[bufnr]:register_cbs(buf_attach_cbs)
+  parsers[bufnr]:register_cbs(opts.buf_attach_cbs)
 
   return parsers[bufnr]
 end
 
-function M.get_string_parser(str, lang)
+function M.get_string_parser(str, lang, opts)
   vim.validate {
     str = { str, 'string' },
     lang = { lang, 'string' }
   }
   language.require_language(lang)
 
-  return LanguageTree.new(str, lang)
+  return LanguageTree.new(str, lang, opts)
 end
 
 return M
