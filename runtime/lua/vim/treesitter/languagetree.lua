@@ -4,6 +4,16 @@ local language = require'vim.treesitter.language'
 local LanguageTree = {}
 LanguageTree.__index = LanguageTree
 
+-- Represents a single treesitter parser for a language.
+-- The language can contain child languages with in it's range,
+-- hence the tree.
+--
+-- @param source Can be a bufnr or a string of text to parse
+-- @param lang The language this tree represents
+-- @param opts Options table
+-- @param opts.queries A table of language to injection query strings
+--                     This is useful for overridding the built in runtime file
+--                     searching for the injection language query per language.
 function LanguageTree.new(source, lang, opts)
   language.require_language(lang)
   opts = opts or {}
@@ -42,18 +52,28 @@ function LanguageTree:invalidate()
   end
 end
 
+-- Returns all trees this language tree contains.
+-- Does not include child languages.
 function LanguageTree:trees()
   return self._trees
 end
 
+-- Gets the language of this tree layer.
 function LanguageTree:lang()
   return self._lang
 end
 
+-- Determines whether this tree is valid.
+-- If the tree is invalid, `parse()` must be called
+-- to get the an updated tree.
 function LanguageTree:is_valid()
   return self._valid
 end
 
+-- Parses all defined regions using a treesitter parser
+-- for the language this tree represents.
+-- This will run the injection query for this language to
+-- determine if any child languages should be created.
 function LanguageTree:parse()
   if self._valid then
     return self._trees
@@ -117,6 +137,9 @@ function LanguageTree:parse()
   return self._trees, changes
 end
 
+-- Invokes the callback for each LanguageTree and it's children recursively
+-- @param fn The function to invoke. This is invoked with arguments (tree: LanguageTree, lang: string)
+-- @param include_self Whether to include the invoking tree in the results.
 function LanguageTree:for_each_child(fn, include_self)
   if include_self then
     fn(self, self._lang)
@@ -127,6 +150,10 @@ function LanguageTree:for_each_child(fn, include_self)
   end
 end
 
+-- Invokes the callback for each treesitter trees recursively.
+-- Note, this includes the invoking language tree's trees as well.
+-- @param fn The callback to invoke. The callback is invoked with arguments
+--           (tree: TSTree, languageTree: LanguageTree)
 function LanguageTree:for_each_tree(fn)
   for _, tree in ipairs(self._trees) do
     fn(tree, self)
@@ -137,6 +164,9 @@ function LanguageTree:for_each_tree(fn)
   end
 end
 
+-- Adds a child language to this tree.
+-- If the language already exists as a child, it will first be removed.
+-- @param lang The language to add.
 function LanguageTree:add_child(lang)
   if self._children[lang] then
     self:remove_child(lang)
@@ -150,6 +180,8 @@ function LanguageTree:add_child(lang)
   return self._children[lang]
 end
 
+-- Removes a child language from this tree.
+-- @param lang The language to remove.
 function LanguageTree:remove_child(lang)
   local child = self._children[lang]
 
@@ -161,6 +193,10 @@ function LanguageTree:remove_child(lang)
   end
 end
 
+-- Destroys this language tree and all it's children.
+-- Any cleanup logic should be performed here.
+-- Note, this DOES NOT remove this tree from a parent.
+-- `remove_child` must be called on the parent to remove it.
 function LanguageTree:destroy()
   -- Cleanup here
   for _, child in ipairs(self._children) do
@@ -168,15 +204,38 @@ function LanguageTree:destroy()
   end
 end
 
+-- Sets the included regions that should be parsed by this parser.
+-- A region is a set of nodes and/or ranges that will be parsed in the same context.
+--
+-- For example, `{ { node1 }, { node2} }` is two separate regions.
+-- This will be parsed by the parser in two different contexts... thus resulting
+-- in two separate trees.
+--
+-- `{ { node1, node2 } }` is a single region consisting of two nodes.
+-- This will be parsed by the parser in a single context... thus resulting
+-- in a single tree.
+--
+-- This allows for embedded languages to be parsed together across different
+-- nodes, which is useful for templating languages like ERB and EJS.
+--
+-- Note, this call invalidates the tree and requires it to be parsed again.
+--
+-- @param regions A list of regions this tree should manange and parse.
 function LanguageTree:set_included_regions(regions)
   self._regions = regions
   self:invalidate()
 end
 
+-- Gets the set of included regions
 function LanguageTree:included_regions()
   return self._regions
 end
 
+-- Gets language injection points by language.
+-- This is where most of the injection processing occurs.
+-- TODO: Allow for an offset predicate to tailor the injection range
+--       instead of using the entire nodes range.
+-- @private
 function LanguageTree:_get_injections()
   if not self._injection_query then return {} end
 
@@ -279,12 +338,14 @@ function LanguageTree:_on_bytes(bufnr, changed_tick,
   local old_end_col = old_col + ((old_row == 0) and start_col or 0)
   local new_end_col = new_col + ((new_row == 0) and start_col or 0)
 
-  for _, tree in ipairs(self._trees) do
+  -- Edit all trees recursively, together BEFORE emitting a bytes callback.
+  -- In most cases this callback should only be called from the root tree.
+  self:for_each_tree(function(tree)
     tree:edit(start_byte,start_byte+old_byte,start_byte+new_byte,
       start_row, start_col,
       start_row+old_row, old_end_col,
       start_row+new_row, new_end_col)
-  end
+  end)
 
   self:_do_callback('bytes', bufnr, changed_tick,
       start_row, start_col, start_byte,
@@ -298,6 +359,8 @@ end
 --  `on_changedtree` : a callback that will be called everytime the tree has syntactical changes.
 --      it will only be passed one argument, that is a table of the ranges (as node ranges) that
 --      changed.
+--  `on_child_added` : emitted when a child is added to the tree.
+--  `on_child_removed` : emitted when a child is remvoed from the tree.
 function LanguageTree:register_cbs(cbs)
   if not cbs then return end
 

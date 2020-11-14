@@ -41,11 +41,7 @@ function M._create_parser(bufnr, lang, opts)
   local self = LanguageTree.new(bufnr, lang, opts)
 
   local function bytes_cb(_, ...)
-    local args = {...}
-
-    self:for_each_child(function(tree)
-      tree:_on_bytes(unpack(args))
-    end, true)
+    self:_on_bytes(...)
   end
 
   local function detach_cb()
