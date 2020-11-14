@@ -13,7 +13,7 @@ function LanguageTree.new(source, lang, opts)
     _source=source,
     _lang=lang,
     _children = {},
-    _ranges = {},
+    _regions = {},
     _trees = {},
     _opts = opts,
     _injection_query = custom_queries[lang]
@@ -66,8 +66,8 @@ function LanguageTree:parse()
 
   -- If there are no ranges, set to an empty list
   -- so the included ranges in the parser ar cleared.
-  if self._ranges and #self._ranges > 0 then
-    for _, ranges in ipairs(self._ranges) do
+  if self._regions and #self._regions > 0 then
+    for _, ranges in ipairs(self._regions) do
       parser:set_included_ranges(ranges)
 
       local tree, tree_changes = parser:parse(nil, self._source)
@@ -92,7 +92,7 @@ function LanguageTree:parse()
       child = self:add_child(lang)
     end
 
-    child:set_included_ranges(injection_ranges)
+    child:set_included_regions(injection_ranges)
 
     local _, child_changes = child:parse()
 
@@ -168,13 +168,13 @@ function LanguageTree:destroy()
   end
 end
 
-function LanguageTree:set_included_ranges(ranges)
-  self._ranges = ranges
+function LanguageTree:set_included_regions(regions)
+  self._regions = regions
   self:invalidate()
 end
 
-function LanguageTree:included_ranges()
-  return self._ranges
+function LanguageTree:included_regions()
+  return self._regions
 end
 
 function LanguageTree:_get_injections()

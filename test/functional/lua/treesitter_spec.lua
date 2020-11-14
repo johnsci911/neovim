@@ -106,11 +106,8 @@ describe('treesitter API with C parser', function()
     eq(false, exec_lua("return child:id() == nil"))
     eq(false, exec_lua("return child:id() == tree"))
 
-    -- orginal tree did not change
-    eq({1,2,1,12}, exec_lua("return {descendant:range()}"))
-
     -- unchanged buffer: return the same tree
-    eq(true, exec_lua("return parser:parse() == tree2"))
+    eq(true, exec_lua("return parser:parse()[1] == tree2"))
   end)
 
     local test_text = [[
@@ -616,7 +613,7 @@ static int nlua_schedule(lua_State *const lstate)
       table.insert(nodes, node)
     end
 
-    parser:set_included_ranges({nodes})
+    parser:set_included_regions({nodes})
 
     local hl = vim.treesitter.highlighter.new(parser, {queries = {c = "(identifier) @type"}})
     ]])
@@ -699,7 +696,7 @@ static int nlua_schedule(lua_State *const lstate)
     -- As stated here, this only includes the function (thus the whole buffer, without the last line)
     local res2 = exec_lua [[
     local root = parser:parse()[1]:root()
-    parser:set_included_ranges({{root:child(0)}})
+    parser:set_included_regions({{root:child(0)}})
     parser:invalidate()
     return { parser:parse()[1]:root():range() }
     ]]
@@ -707,7 +704,13 @@ static int nlua_schedule(lua_State *const lstate)
     eq({0, 0, 18, 1}, res2)
 
     local range = exec_lua [[
-      return parser:included_ranges()
+      local res = {}
+      for _, region in ipairs(parser:included_regions()) do
+        for _, node in ipairs(region) do
+          table.insert(res, {node:range()})
+        end
+      end
+      return res
     ]]
 
     eq(range, { { 0, 0, 18, 1 } })
@@ -727,7 +730,7 @@ static int nlua_schedule(lua_State *const lstate)
       table.insert(nodes, node)
     end
 
-    parser:set_included_ranges(nodes)
+    parser:set_included_regions({nodes})
 
     local root = parser:parse()[1]:root()
 
@@ -740,14 +743,11 @@ static int nlua_schedule(lua_State *const lstate)
 
     eq({
       { 2, 2, 2, 40 },
-      { 3, 3, 3, 32 },
-      { 4, 7, 4, 8 },
-      { 4, 8, 4, 25 },
-      { 8, 2, 8, 6 },
-      { 8, 7, 8, 33 },
-      { 9, 8, 9, 20 },
-      { 10, 4, 10, 5 },
-      { 10, 5, 10, 20 },
+      { 3, 2, 3, 32 },
+      { 4, 7, 4, 25 },
+      { 8, 2, 8, 33 },
+      { 9, 7, 9, 20 },
+      { 10, 4, 10, 20 },
       { 14, 9, 14, 27 } }, res)
   end)
 
