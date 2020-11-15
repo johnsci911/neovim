@@ -70,6 +70,11 @@ function LanguageTree:is_valid()
   return self._valid
 end
 
+-- Returns a map of language to child tree.
+function LanguageTree:children()
+  return self._children
+end
+
 -- Parses all defined regions using a treesitter parser
 -- for the language this tree represents.
 -- This will run the injection query for this language to

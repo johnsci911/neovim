@@ -781,4 +781,67 @@ static int nlua_schedule(lua_State *const lstate)
 
     eq({ {0, 10, 0, 13} }, ret)
   end)
+
+  describe("when creating a language tree", function()
+    local function get_ranges()
+      return exec_lua([[
+      local result = {}
+      parser:for_each_tree(function(tree) table.insert(result, {tree:root():range()}) end)
+      return result
+      ]])
+    end
+
+    before_each(function()
+      insert([[
+        int x = INT_MAX;
+        #define READ_STRING(x, y) (char_u *)read_string((x), (size_t)(y))
+        #define READ_STRING_OK(x, y) (char_u *)read_string((x), (size_t)(y))
+        #define VALUE 0
+        #define VALUE1 1
+        #define VALUE2 2
+      ]])
+    end)
+
+    describe("when parsing regions independently", function()
+      it("should inject a language", function()
+        exec_lua([[
+        parser = vim.treesitter.get_parser(0, "c", {
+          queries = {
+            c = "(preproc_def (preproc_arg) @c) (preproc_function_def value: (preproc_arg) @c)"}})
+        ]])
+
+        eq("table", exec_lua("return type(parser:children().c)"))
+        eq(5, exec_lua("return #parser:children().c:trees()"))
+        eq({
+          {0, 2, 7, 0},   -- root tree
+          {3, 16, 3, 17}, -- VALUE 0
+          {4, 17, 4, 18}, -- VALUE1 1
+          {5, 17, 5, 18}, -- VALUE2 2
+          {1, 28, 1, 67}, -- READ_STRING(x, y) (char_u *)read_string((x), (size_t)(y))
+          {2, 31, 2, 70}  -- READ_STRING_OK(x, y) (char_u *)read_string((x), (size_t)(y))
+        }, get_ranges())
+      end)
+    end)
+
+    describe("when parsing regions combined", function()
+      it("should inject a language", function()
+        exec_lua([[
+        parser = vim.treesitter.get_parser(0, "c", {
+          queries = {
+            c = "(preproc_def (preproc_arg) @c @combined) (preproc_function_def value: (preproc_arg) @c @combined)"}})
+        ]])
+
+        eq("table", exec_lua("return type(parser:children().c)"))
+        eq(2, exec_lua("return #parser:children().c:trees()"))
+        eq({
+          {0, 2, 7, 0},   -- root tree
+          {3, 16, 5, 18}, -- VALUE 0
+                          -- VALUE1 1
+                          -- VALUE2 2
+          {1, 28, 2, 70}  -- READ_STRING(x, y) (char_u *)read_string((x), (size_t)(y))
+                          -- READ_STRING_OK(x, y) (char_u *)read_string((x), (size_t)(y))
+        }, get_ranges())
+      end)
+    end)
+  end)
 end)
