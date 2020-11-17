@@ -340,10 +340,7 @@ void ui_refresh(void)
     eq({ 'contains?', 'eq?', 'is-main?', 'lua-match?', 'match?', 'vim-match?' }, res_list)
   end)
 
-  it('supports highlighting', function()
-    if not check_parser() then return end
-
-    local hl_text = [[
+  local hl_text = [[
 /// Schedule Lua callback on main loop's event queue
 static int nlua_schedule(lua_State *const lstate)
 {
@@ -360,7 +357,7 @@ static int nlua_schedule(lua_State *const lstate)
   return 0;
 }]]
 
-    local hl_query = [[
+local hl_query = [[
 (ERROR) @ErrorMsg
 
 "if" @keyword
@@ -394,6 +391,10 @@ static int nlua_schedule(lua_State *const lstate)
 
 (comment) @comment
 ]]
+
+
+  it('supports highlighting', function()
+    if not check_parser() then return end
 
     local screen = Screen.new(65, 18)
     screen:attach()
@@ -640,6 +641,65 @@ static int nlua_schedule(lua_State *const lstate)
     ]] }
   end)
 
+  it("supports highlighting injected languages", function()
+    local screen = Screen.new(75, 10)
+
+    screen:attach()
+
+    insert([[
+    int x = INT_MAX;
+    #define READ_STRING(x, y) (char_u *)read_string((x), (size_t)(y))
+    #define foo void main() { \
+                  return 42;  \
+                }
+    ]])
+
+    screen:expect{grid=[[
+      int x = INT_MAX;                                                           |
+      #define READ_STRING(x, y) (char_u *)read_string((x), (size_t)(y))          |
+      #define foo void main() { \                                                |
+                    return 42;  \                                                |
+                  }                                                              |
+      ^                                                                           |
+      {1:~                                                                          }|
+      {1:~                                                                          }|
+      {1:~                                                                          }|
+                                                                                 |
+    ]], attr_ids={
+      [1] = {bold = true, foreground = Screen.colors.Blue1};
+    }}
+
+    exec_lua([[
+      local parser = vim.treesitter.get_parser(0, "c", {
+        queries = {c = "(preproc_def (preproc_arg) @c) (preproc_function_def value: (preproc_arg) @c)"}
+      })
+      local highlighter = vim.treesitter.highlighter
+      local query = ...
+      test_hl = highlighter.new(parser, {queries = {c = query}})
+    ]], hl_query)
+
+    screen:expect{grid=[[
+      {1:int} x = {3:INT_MAX};                                                           |
+      #define {3:READ_STRING}(x, y) ({1:char_u} *)read_string((x), ({1:size_t})(y))          |
+      #define foo {1:void} main() { \                                                |
+                    {2:return} {3:42};  \                                                |
+                  }                                                              |
+      ^                                                                           |
+      {7:~                                                                          }|
+      {7:~                                                                          }|
+      {7:~                                                                          }|
+                                                                                 |
+    ]], attr_ids={
+      [1] = {bold = true, foreground = Screen.colors.SeaGreen4};
+      [2] = {bold = true, foreground = Screen.colors.Brown};
+      [3] = {foreground = Screen.colors.Magenta};
+      [4] = {foreground = Screen.colors.SlateBlue};
+      [5] = {foreground = Screen.colors.Purple};
+      [6] = {foreground = Screen.colors.Cyan4};
+      [7] = {bold = true, foreground = Screen.colors.Blue1};
+    }}
+  end)
+
   it('inspects language', function()
     if not check_parser() then return end
 
@@ -719,7 +779,6 @@ static int nlua_schedule(lua_State *const lstate)
     if not check_parser() then return end
 
     insert(test_text)
-
 
     local res = exec_lua [[
     parser = vim.treesitter.get_parser(0, "c")
@@ -844,4 +903,5 @@ static int nlua_schedule(lua_State *const lstate)
       end)
     end)
   end)
+
 end)
